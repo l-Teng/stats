@@ -51,7 +51,7 @@ public class SpeedWidget: WidgetWrapper {
     private let networkFixedTemplateWithUnits = "999.9 K/s"
     private let networkFixedTemplateNoUnits = "999.9"
     /// Crop empty space on the left only (right edge of text stays); does not shrink the right side.
-    private let networkLeftTrim: CGFloat = 2
+    private let networkLeftTrim: CGFloat = 4
     
     private var isNetworkModule: Bool {
         self.title == ModuleType.network.stringValue
