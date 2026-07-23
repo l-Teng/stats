@@ -43,13 +43,15 @@ public class SpeedWidget: WidgetWrapper {
     // MARK: - Network menu-bar speed formatting (Huorong-style)
     // Fixed-width display so the status item does not jump when digits change.
     // Format always keeps one decimal: "2.0 K/s", "12.3 K/s", "8.7 M/s".
+    // No reserved arrow slot — width is text-only regardless of pictogram.
     
     private let networkValueFont = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular)
     private let networkUnitFont = NSFont.systemFont(ofSize: 8, weight: .regular)
     /// Widest expected line with units: "999.9 K/s" (covers K/s and M/s)
     private let networkFixedTemplateWithUnits = "999.9 K/s"
     private let networkFixedTemplateNoUnits = "999.9"
-    private let networkArrowSlot: CGFloat = 8
+    /// Crop empty space on the left only (right edge of text stays); does not shrink the right side.
+    private let networkLeftTrim: CGFloat = 2
     
     private var isNetworkModule: Bool {
         self.title == ModuleType.network.stringValue
@@ -72,12 +74,12 @@ public class SpeedWidget: WidgetWrapper {
                 value: self.networkUnitFont,
                 range: NSRange(location: attr.length - 3, length: 3)
             )
-            return ceil(attr.size().width)
+            return ceil(attr.size().width) - 2
         }
         let size = (self.networkFixedTemplateNoUnits as NSString).size(withAttributes: [
             .font: self.networkValueFont
         ])
-        return ceil(size.width)
+        return ceil(size.width) - 2
     }
     
     private func networkSpeedParts(_ bytes: Int64) -> (number: String, unit: String) {
@@ -341,16 +343,23 @@ public class SpeedWidget: WidgetWrapper {
         // Network always pure B&W + fixed width; other modules use the passed color
         let drawColor = self.isNetworkModule ? self.networkMonoColor : color
         let attr = self.speedAttributedString(value, color: drawColor, fontSize: self.isNetworkModule ? 9 : 11)
+        let leftTrim = self.isNetworkModule ? self.networkLeftTrim : 0
         let rowWidth: CGFloat = self.isNetworkModule
             ? self.networkFixedTextWidth
             : max(self.measureAttributedWidth(attr) + 2, self.unitsState ? 58 : 32)
         let height: CGFloat = self.frame.height
         let size: CGFloat = 10
         
-        let rect = CGRect(x: offset.x, y: (height-size)/2 + offset.y + 1, width: rowWidth, height: size)
+        // Network: crop left only — draw shifted left so right edge of text stays put
+        let rect = CGRect(
+            x: offset.x - leftTrim,
+            y: (height-size)/2 + offset.y + 1,
+            width: rowWidth,
+            height: size
+        )
         attr.draw(with: rect)
         
-        return rowWidth
+        return rowWidth - leftTrim
     }
     
     private func drawDot(_ offset: CGPoint, color: NSColor) -> CGFloat {
@@ -423,16 +432,13 @@ public class SpeedWidget: WidgetWrapper {
     // MARK: - two rows
     
     private func drawTwoRows() -> CGFloat {
-        // Network: Huorong-style fixed-width column (does not jump with digit count).
-        // Arrow slot is reserved only when pictogram == "arrows".
+        // Network: Huorong-style fixed-width text only (no arrow width reservation).
+        // Dots/chars still use a small icon slot when selected.
         
         let showArrows = self.isNetworkModule && self.icon == "arrows"
-        let hasIcon = self.icon != "none"
-        let iconSlot: CGFloat = {
-            if !hasIcon { return 0 }
-            if showArrows { return self.networkArrowSlot }
-            return 7 // dots / chars
-        }()
+        // Arrows do not reserve horizontal space — only dots/chars do
+        let hasIcon = self.icon != "none" && !showArrows
+        let iconSlot: CGFloat = hasIcon ? 7 : 0
         let iconOnLeft = hasIcon && self.iconAlignmentState != "right"
         let textX: CGFloat = iconOnLeft ? iconSlot : 0
         
@@ -458,20 +464,24 @@ public class SpeedWidget: WidgetWrapper {
             let inputY: CGFloat = self.displayValueState == "io" ? rowHeight + 1 : 1
             let outputY: CGFloat = self.displayValueState == "io" ? 1 : rowHeight + 1
             
+            // Network: crop left only — draw shifted left so right edge of text is unchanged
+            let leftTrim = self.isNetworkModule ? self.networkLeftTrim : 0
+            let drawX = Constants.Widget.margin.x + textX - leftTrim
+            
             inputAttr.draw(with: CGRect(
-                x: Constants.Widget.margin.x + textX,
+                x: drawX,
                 y: inputY,
                 width: rowWidth,
                 height: rowHeight
             ))
             outputAttr.draw(with: CGRect(
-                x: Constants.Widget.margin.x + textX,
+                x: drawX,
                 y: outputY,
                 width: rowWidth,
                 height: rowHeight
             ))
             
-            width = textX + rowWidth
+            width = textX + rowWidth - leftTrim
             if hasIcon && !iconOnLeft {
                 width += iconSlot
             }
@@ -479,9 +489,10 @@ public class SpeedWidget: WidgetWrapper {
             width = iconSlot
         }
         
+        // Arrows: draw without expanding width (no reserved slot)
         if showArrows {
             self.drawLemonArrows()
-            return width + 1
+            return width
         }
         
         switch self.icon {
@@ -495,11 +506,12 @@ public class SpeedWidget: WidgetWrapper {
         return width
     }
     
-    /// Compact filled chevrons — pure black/white; only drawn when pictogram is "arrows".
+    /// Compact filled chevrons — pure black/white; drawn only when pictogram is "arrows".
+    /// Does not contribute to widget width (no reserved slot).
     private func drawLemonArrows() {
         let half = self.frame.height / 2
         let color = self.networkMonoColor
-        let x: CGFloat = 1.0
+        let x: CGFloat = 0
         let arrowW: CGFloat = 5
         let arrowH: CGFloat = 3.5
         
