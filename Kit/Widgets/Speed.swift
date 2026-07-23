@@ -32,13 +32,115 @@ public class SpeedWidget: WidgetWrapper {
     private var inputValue: Int64 = 0
     private var outputValue: Int64 = 0
     
-    private var width: CGFloat = 58
+    private var width: CGFloat = 40
     
     private var valueColorView: NSPopUpButton? = nil
     private var valueAlignmentView: NSPopUpButton? = nil
     private var iconAlignmentView: NSPopUpButton? = nil
     private var iconColorView: NSPopUpButton? = nil
     private var displayModeView: NSPopUpButton? = nil
+    
+    // MARK: - Network menu-bar speed formatting (Huorong-style)
+    // Fixed-width display so the status item does not jump when digits change.
+    // Format always keeps one decimal: "2.0 K/s", "12.3 K/s", "8.7 M/s".
+    
+    private let networkValueFont = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular)
+    private let networkUnitFont = NSFont.systemFont(ofSize: 8, weight: .regular)
+    /// Widest expected line with units: "999.9 K/s" (covers K/s and M/s)
+    private let networkFixedTemplateWithUnits = "999.9 K/s"
+    private let networkFixedTemplateNoUnits = "999.9"
+    private let networkArrowSlot: CGFloat = 8
+    
+    private var isNetworkModule: Bool {
+        self.title == ModuleType.network.stringValue
+    }
+    
+    /// Pure black (light) / pure white (dark).
+    private var networkMonoColor: NSColor {
+        let isDark = self.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return isDark ? NSColor.white : NSColor.black
+    }
+    
+    /// Fixed text column width — independent of the current speed value.
+    private var networkFixedTextWidth: CGFloat {
+        if self.unitsState {
+            let attr = NSMutableAttributedString(string: self.networkFixedTemplateWithUnits, attributes: [
+                .font: self.networkValueFont
+            ])
+            attr.addAttribute(
+                .font,
+                value: self.networkUnitFont,
+                range: NSRange(location: attr.length - 3, length: 3)
+            )
+            return ceil(attr.size().width)
+        }
+        let size = (self.networkFixedTemplateNoUnits as NSString).size(withAttributes: [
+            .font: self.networkValueFont
+        ])
+        return ceil(size.width)
+    }
+    
+    private func networkSpeedParts(_ bytes: Int64) -> (number: String, unit: String) {
+        // B/s → KB/s via /1000; switch to MB when > 1000 KB/s (÷1024)
+        let kb = Double(max(bytes, 0)) / 1000.0
+        let value: Double
+        let unit: String
+        if kb > 1000 {
+            value = kb / 1024.0
+            unit = " M/s"
+        } else {
+            value = kb
+            unit = " K/s"
+        }
+        // Huorong-style: always one decimal place so string length stays stable
+        return (String(format: "%.1f", value), unit)
+    }
+    
+    private func networkSpeedAttributedString(_ bytes: Int64, color: NSColor) -> NSAttributedString {
+        let parts = self.networkSpeedParts(bytes)
+        let full = self.unitsState ? (parts.number + parts.unit) : parts.number
+        
+        let paragraph = NSMutableParagraphStyle()
+        // Right-align inside the fixed column so shorter numbers do not shift the block
+        paragraph.alignment = .right
+        
+        let attr = NSMutableAttributedString(string: full, attributes: [
+            .font: self.networkValueFont,
+            .foregroundColor: color,
+            .paragraphStyle: paragraph
+        ])
+        if self.unitsState, attr.length >= 3 {
+            attr.addAttribute(
+                .font,
+                value: self.networkUnitFont,
+                range: NSRange(location: attr.length - 3, length: 3)
+            )
+        }
+        return attr
+    }
+    
+    private func speedAttributedString(_ bytes: Int64, color: NSColor, fontSize: CGFloat) -> NSAttributedString {
+        if self.isNetworkModule {
+            return self.networkSpeedAttributedString(bytes, color: color)
+        }
+        
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = self.valueAlignment
+        let text = Units(bytes: bytes).getReadableSpeed(
+            base: base,
+            unit: self.speedUnit,
+            omitUnits: !self.unitsState
+        )
+        return NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .regular),
+            .foregroundColor: color,
+            .paragraphStyle: paragraph
+        ])
+    }
+    
+    private func measureAttributedWidth(_ string: NSAttributedString) -> CGFloat {
+        ceil(string.size().width)
+    }
     
     private var inputColor: (String) -> NSColor {{ state in
         if state == "none" { return .textColor }
@@ -196,22 +298,25 @@ public class SpeedWidget: WidgetWrapper {
     
     private func drawRowItem(initWidth: CGFloat, symbol: String, iconColor: NSColor, value: Int64, valueColor: NSColor) -> CGFloat {
         var width = initWidth
+        // Network: pure black/white for icons and values
+        let resolvedIconColor = self.isNetworkModule ? self.networkMonoColor : iconColor
+        let resolvedValueColor = self.isNetworkModule ? self.networkMonoColor : valueColor
         
         if self.iconAlignmentState == "left" {
             switch self.icon {
             case "dots":
-                width += self.drawDot(CGPoint(x: width, y: 0), color: iconColor)
+                width += self.drawDot(CGPoint(x: width, y: 0), color: resolvedIconColor)
             case "arrows":
-                width += self.drawArrow(CGPoint(x: width, y: 0), symbol: symbol, color: iconColor)
+                width += self.drawArrow(CGPoint(x: width, y: 0), symbol: symbol, color: resolvedIconColor)
             case "chars":
-                width += self.drawChar(CGPoint(x: width, y: 0), symbol: symbol, color: iconColor)
+                width += self.drawChar(CGPoint(x: width, y: 0), symbol: symbol, color: resolvedIconColor)
             default: break
             }
             width += self.valueState && self.icon != "none" ? 2 : 0
         }
         
         if self.valueState {
-            width += self.drawValue(value, offset: CGPoint(x: width, y: 0), color: valueColor)
+            width += self.drawValue(value, offset: CGPoint(x: width, y: 0), color: resolvedValueColor)
         }
         
         if self.iconAlignmentState == "right" {
@@ -220,11 +325,11 @@ public class SpeedWidget: WidgetWrapper {
             }
             switch self.icon {
             case "dots":
-                width += self.drawDot(CGPoint(x: width, y: 0), color: iconColor)
+                width += self.drawDot(CGPoint(x: width, y: 0), color: resolvedIconColor)
             case "arrows":
-                width += self.drawArrow(CGPoint(x: width, y: 0), symbol: symbol, color: iconColor)
+                width += self.drawArrow(CGPoint(x: width, y: 0), symbol: symbol, color: resolvedIconColor)
             case "chars":
-                width += self.drawChar(CGPoint(x: width, y: 0), symbol: symbol, color: iconColor)
+                width += self.drawChar(CGPoint(x: width, y: 0), symbol: symbol, color: resolvedIconColor)
             default: break
             }
         }
@@ -233,24 +338,17 @@ public class SpeedWidget: WidgetWrapper {
     }
     
     private func drawValue(_ value: Int64, offset: CGPoint, color: NSColor) -> CGFloat {
-        let rowWidth: CGFloat = self.unitsState ? 58 : 32
+        // Network always pure B&W + fixed width; other modules use the passed color
+        let drawColor = self.isNetworkModule ? self.networkMonoColor : color
+        let attr = self.speedAttributedString(value, color: drawColor, fontSize: self.isNetworkModule ? 9 : 11)
+        let rowWidth: CGFloat = self.isNetworkModule
+            ? self.networkFixedTextWidth
+            : max(self.measureAttributedWidth(attr) + 2, self.unitsState ? 58 : 32)
         let height: CGFloat = self.frame.height
-        let style = NSMutableParagraphStyle()
-        style.alignment = self.valueAlignment
         let size: CGFloat = 10
         
-        let inputStringAttributes = [
-            NSAttributedString.Key.font: NSFont.systemFont(ofSize: 11, weight: .regular),
-            NSAttributedString.Key.foregroundColor: color,
-            NSAttributedString.Key.paragraphStyle: style
-        ]
-        
-        let rect = CGRect(x: offset.x, y: (height-size)/2 + offset.y + 1, width: rowWidth - (Constants.Widget.margin.x*2), height: size)
-        let value = NSAttributedString.init(
-            string: Units(bytes: value).getReadableSpeed(base: base, unit: self.speedUnit, omitUnits: !self.unitsState),
-            attributes: inputStringAttributes
-        )
-        value.draw(with: rect)
+        let rect = CGRect(x: offset.x, y: (height-size)/2 + offset.y + 1, width: rowWidth, height: size)
+        attr.draw(with: rect)
         
         return rowWidth
     }
@@ -325,65 +423,106 @@ public class SpeedWidget: WidgetWrapper {
     // MARK: - two rows
     
     private func drawTwoRows() -> CGFloat {
-        var width: CGFloat = 7
-        var x: CGFloat = 7
+        // Network: Huorong-style fixed-width column (does not jump with digit count).
+        // Arrow slot is reserved only when pictogram == "arrows".
         
-        if self.iconAlignmentState == "right" {
-            x = 0
-        }
-        if self.icon == "none" {
-            x = 0
-            width = 0
-        }
+        let showArrows = self.isNetworkModule && self.icon == "arrows"
+        let hasIcon = self.icon != "none"
+        let iconSlot: CGFloat = {
+            if !hasIcon { return 0 }
+            if showArrows { return self.networkArrowSlot }
+            return 7 // dots / chars
+        }()
+        let iconOnLeft = hasIcon && self.iconAlignmentState != "right"
+        let textX: CGFloat = iconOnLeft ? iconSlot : 0
+        
+        var width: CGFloat = 0
         
         if self.valueState {
-            let rowWidth: CGFloat = self.unitsState ? 48 : 30
+            let inputColor = self.isNetworkModule ? self.networkMonoColor : self.inputColor(self.valueColorState)
+            let outputColor = self.isNetworkModule ? self.networkMonoColor : self.outputColor(self.valueColorState)
+            
+            let inputAttr = self.speedAttributedString(self.inputValue, color: inputColor, fontSize: 9)
+            let outputAttr = self.speedAttributedString(self.outputValue, color: outputColor, fontSize: 9)
+            
+            // Network: fixed column width from template — never depends on current value
+            let rowWidth: CGFloat = self.isNetworkModule
+                ? self.networkFixedTextWidth
+                : max(
+                    max(self.measureAttributedWidth(inputAttr), self.measureAttributedWidth(outputAttr)) + 1,
+                    self.unitsState ? 48 : 30
+                )
             let rowHeight: CGFloat = self.frame.height / 2
-            let style = NSMutableParagraphStyle()
-            style.alignment = self.valueAlignment
             
-            let inputStringAttributes = [
-                NSAttributedString.Key.font: NSFont.systemFont(ofSize: 9, weight: .light),
-                NSAttributedString.Key.foregroundColor: self.inputColor(self.valueColorState),
-                NSAttributedString.Key.paragraphStyle: style
-            ]
-            let outputStringAttributes = [
-                NSAttributedString.Key.font: NSFont.systemFont(ofSize: 9, weight: .light),
-                NSAttributedString.Key.foregroundColor: self.outputColor(self.valueColorState),
-                NSAttributedString.Key.paragraphStyle: style
-            ]
-            
+            // displayValue "oi" = output(upload) top / input(download) bottom
             let inputY: CGFloat = self.displayValueState == "io" ? rowHeight + 1 : 1
             let outputY: CGFloat = self.displayValueState == "io" ? 1 : rowHeight + 1
             
-            var rect = CGRect(x: Constants.Widget.margin.x + x, y: inputY, width: rowWidth - (Constants.Widget.margin.x*2), height: rowHeight)
-            let input = NSAttributedString.init(
-                string: Units(bytes: self.inputValue).getReadableSpeed(base: base, unit: self.speedUnit, omitUnits: !self.unitsState),
-                attributes: inputStringAttributes
-            )
-            input.draw(with: rect)
+            inputAttr.draw(with: CGRect(
+                x: Constants.Widget.margin.x + textX,
+                y: inputY,
+                width: rowWidth,
+                height: rowHeight
+            ))
+            outputAttr.draw(with: CGRect(
+                x: Constants.Widget.margin.x + textX,
+                y: outputY,
+                width: rowWidth,
+                height: rowHeight
+            ))
             
-            rect = CGRect(x: Constants.Widget.margin.x + x, y: outputY, width: rowWidth - (Constants.Widget.margin.x*2), height: rowHeight)
-            let output = NSAttributedString.init(
-                string: Units(bytes: self.outputValue).getReadableSpeed(base: base, unit: self.speedUnit, omitUnits: !self.unitsState),
-                attributes: outputStringAttributes
-            )
-            output.draw(with: rect)
-            
-            width += rowWidth
+            width = textX + rowWidth
+            if hasIcon && !iconOnLeft {
+                width += iconSlot
+            }
+        } else if hasIcon {
+            width = iconSlot
+        }
+        
+        if showArrows {
+            self.drawLemonArrows()
+            return width + 1
         }
         
         switch self.icon {
         case "dots":
             self.drawDots(width)
-        case "arrows":
-            self.drawArrows(width)
         case "chars":
             self.drawChars(width)
         default: break
         }
         
         return width
+    }
+    
+    /// Compact filled chevrons — pure black/white; only drawn when pictogram is "arrows".
+    private func drawLemonArrows() {
+        let half = self.frame.height / 2
+        let color = self.networkMonoColor
+        let x: CGFloat = 1.0
+        let arrowW: CGFloat = 5
+        let arrowH: CGFloat = 3.5
+        
+        let topY = half + (half - arrowH) / 2 + 0.5
+        let bottomY = (half - arrowH) / 2
+        
+        color.set()
+        
+        // ▲ upload
+        let up = NSBezierPath()
+        up.move(to: CGPoint(x: x + arrowW / 2, y: topY + arrowH))
+        up.line(to: CGPoint(x: x, y: topY))
+        up.line(to: CGPoint(x: x + arrowW, y: topY))
+        up.close()
+        up.fill()
+        
+        // ▼ download
+        let down = NSBezierPath()
+        down.move(to: CGPoint(x: x + arrowW / 2, y: bottomY))
+        down.line(to: CGPoint(x: x, y: bottomY + arrowH))
+        down.line(to: CGPoint(x: x + arrowW, y: bottomY + arrowH))
+        down.close()
+        down.fill()
     }
     
     private func drawDots(_ width: CGFloat) {
@@ -394,14 +533,17 @@ public class SpeedWidget: WidgetWrapper {
         let inputY: CGFloat = self.displayValueState == "io" ? 10.5 : y-0.2
         let outputdY: CGFloat = self.displayValueState == "io" ? y-0.2 : 10.5
         
+        let inColor = self.isNetworkModule ? self.networkMonoColor : self.inputColor(self.iconColorState)
+        let outColor = self.isNetworkModule ? self.networkMonoColor : self.outputColor(self.iconColorState)
+        
         var inputCircle = NSBezierPath()
         inputCircle = NSBezierPath(ovalIn: CGRect(x: x, y: inputY, width: size, height: size))
-        self.inputColor(self.iconColorState).set()
+        inColor.set()
         inputCircle.fill()
         
         var outputCircle = NSBezierPath()
         outputCircle = NSBezierPath(ovalIn: CGRect(x: x, y: outputdY, width: size, height: size))
-        self.outputColor(self.iconColorState).set()
+        outColor.set()
         outputCircle.fill()
     }
     
@@ -454,10 +596,12 @@ public class SpeedWidget: WidgetWrapper {
         let inputY: CGFloat = self.displayValueState == "io" ? rowHeight+1 : 1
         let outputY: CGFloat = self.displayValueState == "io" ? 1 : rowHeight+1
         let x: CGFloat = self.iconAlignmentState == "left" ? Constants.Widget.margin.x : Constants.Widget.margin.x+(width-6)
+        let inColor = self.isNetworkModule ? self.networkMonoColor : self.inputColor(self.iconColorState)
+        let outColor = self.isNetworkModule ? self.networkMonoColor : self.outputColor(self.iconColorState)
         
         let inputAttributes = [
             NSAttributedString.Key.font: NSFont.systemFont(ofSize: 9, weight: .regular),
-            NSAttributedString.Key.foregroundColor: self.inputColor(self.iconColorState),
+            NSAttributedString.Key.foregroundColor: inColor,
             NSAttributedString.Key.paragraphStyle: NSMutableParagraphStyle()
         ]
         var rect = CGRect(x: x, y: inputY, width: 8, height: rowHeight)
@@ -466,7 +610,7 @@ public class SpeedWidget: WidgetWrapper {
         
         let outputAttributes = [
             NSAttributedString.Key.font: NSFont.systemFont(ofSize: 9, weight: .regular),
-            NSAttributedString.Key.foregroundColor: self.outputColor(self.iconColorState),
+            NSAttributedString.Key.foregroundColor: outColor,
             NSAttributedString.Key.paragraphStyle: NSMutableParagraphStyle()
         ]
         rect = CGRect(x: x, y: outputY, width: 8, height: rowHeight)

@@ -15,7 +15,7 @@ import SystemConfiguration
 import CoreWLAN
 
 // swiftlint:disable control_statement
-extension CWPHYMode: @retroactive CustomStringConvertible {
+extension CWPHYMode: CustomStringConvertible {
     public var description: String {
         switch(self) {
         case .mode11a:  return "802.11a"
@@ -24,14 +24,16 @@ extension CWPHYMode: @retroactive CustomStringConvertible {
         case .mode11g:  return "802.11g"
         case .mode11n:  return "802.11n"
         case .mode11ax: return "802.11ax"
+#if compiler(>=6.0)
         case .mode11be: return "802.11be"
+#endif
         case .modeNone: return "none"
         @unknown default: return "unknown"
         }
     }
 }
 
-extension CWInterfaceMode: @retroactive CustomStringConvertible {
+extension CWInterfaceMode: CustomStringConvertible {
     public var description: String {
         switch(self) {
         case .hostAP:       return "AP"
@@ -43,7 +45,7 @@ extension CWInterfaceMode: @retroactive CustomStringConvertible {
     }
 }
 
-extension CWSecurity: @retroactive CustomStringConvertible {
+extension CWSecurity: CustomStringConvertible {
     public var description: String {
         switch(self) {
         case .none:               return "none"
@@ -66,7 +68,7 @@ extension CWSecurity: @retroactive CustomStringConvertible {
     }
 }
 
-extension CWChannelBand: @retroactive CustomStringConvertible {
+extension CWChannelBand: CustomStringConvertible {
     public var description: String {
         switch(self) {
         case .band2GHz:     return "2 GHz"
@@ -78,7 +80,7 @@ extension CWChannelBand: @retroactive CustomStringConvertible {
     }
 }
 
-extension CWChannelWidth: @retroactive CustomStringConvertible {
+extension CWChannelWidth: CustomStringConvertible {
     public var description: String {
         switch(self) {
         case .width20MHz:   return "20 MHz"

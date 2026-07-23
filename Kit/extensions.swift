@@ -36,7 +36,7 @@ internal final class RegexCache {
     }
 }
 
-extension String: @retroactive LocalizedError {
+extension String: LocalizedError {
     public var errorDescription: String? { return self }
     
     public var digits: String {
