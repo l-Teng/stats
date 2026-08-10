@@ -47,8 +47,11 @@ public class SpeedWidget: WidgetWrapper {
     
     private let networkValueFont = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular)
     private let networkUnitFont = NSFont.systemFont(ofSize: 8, weight: .regular)
-    /// Widest expected line with units: "999.9 K/s" (covers K/s and M/s)
-    private let networkFixedTemplateWithUnits = "999.9 K/s"
+    /// Reserve the widest expected three-digit line across all supported units.
+    private let networkFixedTemplatesWithUnits = [
+        "999.9 K/s", "999.9 M/s", "999.9 G/s", "999.9 T/s",
+        "999.9 Kb/s", "999.9 Mb/s", "999.9 Gb/s", "999.9 Tb/s"
+    ]
     private let networkFixedTemplateNoUnits = "999.9"
     /// Crop empty space on the left only (right edge of text stays); does not shrink the right side.
     private let networkLeftTrim: CGFloat = 4
@@ -66,15 +69,18 @@ public class SpeedWidget: WidgetWrapper {
     /// Fixed text column width — independent of the current speed value.
     private var networkFixedTextWidth: CGFloat {
         if self.unitsState {
-            let attr = NSMutableAttributedString(string: self.networkFixedTemplateWithUnits, attributes: [
-                .font: self.networkValueFont
-            ])
-            attr.addAttribute(
-                .font,
-                value: self.networkUnitFont,
-                range: NSRange(location: attr.length - 3, length: 3)
-            )
-            return ceil(attr.size().width) - 2
+            let widths = self.networkFixedTemplatesWithUnits.map { template -> CGFloat in
+                let attr = NSMutableAttributedString(string: template, attributes: [
+                    .font: self.networkValueFont
+                ])
+                attr.addAttribute(
+                    .font,
+                    value: self.networkUnitFont,
+                    range: NSRange(location: attr.length - 3, length: 3)
+                )
+                return attr.size().width
+            }
+            return ceil(widths.max() ?? 0) - 2
         }
         let size = (self.networkFixedTemplateNoUnits as NSString).size(withAttributes: [
             .font: self.networkValueFont
